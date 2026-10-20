@@ -1170,15 +1170,17 @@
         }
       } else {
         msgObj.id = Date.now().toString();
-        if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
-        roomMessages[currentRoom].push(msgObj);
-        renderChatLog();
-
-        // Broadcast to P2P network
+        // The host stores and broadcasts the message. A guest waits for that
+        // broadcast so it does not append the same message twice locally.
         if (isHost) {
+          if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
+          roomMessages[currentRoom].push(msgObj);
+          renderChatLog();
           broadcastToClients({ type: 'NEW_MSG', roomId: currentRoom, message: msgObj });
         } else if (clientHostConn && clientHostConn.open) {
           clientHostConn.send({ type: 'NEW_MSG', message: msgObj });
+        } else {
+          showSysNotification('通信が切断されています。投稿は共有されませんでした。');
         }
       }
 
