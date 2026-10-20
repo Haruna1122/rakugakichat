@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RakugakiChat 2S Web</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter:wght@400;600;700&display=swap');
+
+    body {
+      font-family: 'Inter', 'DotGothic16', sans-serif;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    button {
+      white-space: nowrap;
+    }
+
+    .font-dot {
+      font-family: 'DotGothic16', monospace;
+    }
+
+    /* Retro LCD Grid Pattern */
+    .ds-lcd-bg {
+      background-color: #e2e8f0;
+      background-image: 
+        linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+      background-size: 8px 8px;
+    }
+
+    /* DS Console Frame Styling */
+    .ds-frame {
+      box-shadow: inset 0 0 12px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    .ds-screen-frame {
+      box-shadow: inset 2px 2px 5px rgba(0,0,0,0.3), inset -1px -1px 3px rgba(255,255,255,0.8);
+    }
+
+    /* Snap Scroll for Flipbook Effect */
+    .snap-y-mandatory {
+      scroll-snap-type: y mandatory;
+    }
+    .snap-start {
+      scroll-snap-align: start;
+    }
+
+    /* Button Pressed State */
+    .ds-btn:active {
+      transform: translateY(1px);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #cbd5e1;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #64748b;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="bg-slate-800 min-h-screen flex items-center justify-center p-2 sm:p-4 text-slate-900">
+
+  <!-- DUAL SCREEN CONSOLE HOUSING -->
+  <div class="w-full max-w-md bg-slate-300 border-4 border-slate-700 rounded-2xl p-3 flex flex-col gap-2 ds-frame shadow-2xl relative overflow-hidden">
+    
+    <!-- TOP SCREEN: Chat Log & Flipbook Viewer -->
+    <div class="bg-slate-200 border-3 border-slate-600 rounded-xl p-2 flex flex-col h-64 sm:h-72 ds-screen-frame relative overflow-hidden">
+      
+      <!-- Top Screen Header Bar -->
+      <div class="flex items-center justify-between bg-slate-300 px-2 py-1 rounded border border-slate-400 text-xs font-mono font-bold text-slate-700 shadow-2xs flex-shrink-0 gap-1">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <i class="fa-solid fa-wifi text-emerald-600 text-[10px] flex-shrink-0"></i>
+          <span class="text-[11px] font-dot truncate flex-shrink-0">RAKUGAKI CHAT</span>
+          <select id="roomSelect" class="bg-white border border-slate-400 rounded px-1 text-[11px] font-bold text-slate-800 focus:outline-none cursor-pointer flex-shrink-0">
+            <option value="Room A">Room A</option>
+            <option value="Room B">Room B</option>
+            <option value="Room C">Room C</option>
+            <option value="Room D">Room D</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button id="playFlipbookBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-xs active:scale-95 flex items-center gap-1 transition-transform whitespace-nowrap">
+            <i class="fa-solid fa-play text-[9px]"></i><span>パラパラ再生</span>
+          </button>
+          <button id="clearRoomLogBtn" class="bg-rose-600 hover:bg-rose-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-xs active:scale-95 flex items-center gap-1 transition-transform whitespace-nowrap">
+            <i class="fa-solid fa-trash-can text-[9px]"></i><span>ログ消去</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Chat Log Stream (Seamless Vertical Alignment) -->
+      <div id="chatLog" class="flex-1 ds-lcd-bg overflow-y-auto mt-1 border border-slate-400 rounded p-0 flex flex-col gap-0 snap-y-mandatory divide-y divide-slate-300">
+        <!-- Messages appended dynamically -->
+      </div>
+
+    </div>
+
+    <!-- HINGE & POWER INDICATOR BAR -->
+    <div class="h-3 bg-slate-400 border-y-2 border-slate-600 flex items-center justify-between px-4 relative">
+      <div class="flex gap-1.5 items-center">
+        <div class="w-1.5 h-1.5 rounded-full bg-slate-600"></div>
+        <div class="w-1.5 h-1.5 rounded-full bg-slate-600"></div>
+      </div>
+      <div class="flex items-center gap-1">
+        <span class="text-[9px] font-bold text-slate-600 tracking-tighter whitespace-nowrap">DUAL SCREEN</span>
+        <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse border border-emerald-700" title="POWER"></div>
+      </div>
+      <div class="flex gap-1.5 items-center">
+        <div class="w-1.5 h-1.5 rounded-full bg-slate-600"></div>
+        <div class="w-1.5 h-1.5 rounded-full bg-slate-600"></div>
+      </div>
+    </div>
+
+    <!-- BOTTOM SCREEN: Touch Controls & Canvas -->
+    <div class="bg-slate-100 border-3 border-slate-600 rounded-xl p-2 flex flex-col justify-start gap-1.5 ds-screen-frame relative overflow-y-auto max-h-[420px]">
+      
+      <!-- Drawing Tools Toolbar -->
+      <div class="flex items-center justify-between gap-1 bg-slate-200 p-1 rounded-lg border border-slate-300 shadow-xs flex-shrink-0 overflow-x-auto">
+        <!-- Drawing Mode Buttons -->
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <button id="toolPen" class="tool-btn bg-blue-600 text-white p-1.5 rounded border border-blue-800 text-xs shadow-xs active:scale-95 whitespace-nowrap" title="ペン">
+            <i class="fa-solid fa-pen-nib"></i>
+          </button>
+          <button id="toolEraser" class="tool-btn bg-white text-slate-700 p-1.5 rounded border border-slate-400 text-xs shadow-xs hover:bg-slate-100 active:scale-95 whitespace-nowrap" title="消しゴム">
+            <i class="fa-solid fa-eraser"></i>
+          </button>
+          <button id="toolLine" class="tool-btn bg-white text-slate-700 p-1.5 rounded border border-slate-400 text-xs shadow-xs hover:bg-slate-100 active:scale-95 whitespace-nowrap" title="直線">
+            <i class="fa-solid fa-slash"></i>
+          </button>
+          <button id="toolRect" class="tool-btn bg-white text-slate-700 p-1.5 rounded border border-slate-400 text-xs shadow-xs hover:bg-slate-100 active:scale-95 whitespace-nowrap" title="四角形">
+            <i class="fa-regular fa-square"></i>
+          </button>
+        </div>
+
+        <!-- Brush Sizes: Pure Black Dot Previews Only -->
+        <div class="flex items-center gap-1 bg-white px-1.5 py-1 rounded border border-slate-300 flex-shrink-0">
+          <button class="size-btn p-1 rounded hover:bg-slate-100 flex items-center justify-center active:scale-90" data-size="2" title="細">
+            <span class="w-1.5 h-1.5 bg-slate-800 rounded-full"></span>
+          </button>
+          <button class="size-btn p-1 rounded hover:bg-slate-100 flex items-center justify-center border border-blue-500 bg-blue-50 active:scale-90" data-size="4" title="中">
+            <span class="w-2.5 h-2.5 bg-slate-800 rounded-full"></span>
+          </button>
+          <button class="size-btn p-1 rounded hover:bg-slate-100 flex items-center justify-center active:scale-90" data-size="8" title="太">
+            <span class="w-4 h-4 bg-slate-800 rounded-full"></span>
+          </button>
+        </div>
+
+        <!-- Local Canvas Clear Button -->
+        <button id="clearCanvasBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold px-2.5 py-1 rounded border border-slate-400 text-xs shadow-xs active:bg-slate-500 transition-colors whitespace-nowrap flex-shrink-0">
+          消去
+        </button>
+      </div>
+
+      <!-- Touch Canvas (2:1 Aspect Ratio) -->
+      <div class="relative w-full aspect-[2/1] bg-white border-2 border-slate-500 rounded overflow-hidden shadow-inner flex justify-center items-center flex-shrink-0">
+        <div class="absolute inset-0 pointer-events-none opacity-10 z-0 ds-lcd-bg"></div>
+        <canvas id="drawCanvas" width="320" height="160" class="w-full h-full bg-transparent cursor-crosshair touch-none relative z-10"></canvas>
+      </div>
+
+      <!-- Action Bar & Controls -->
+      <div class="flex flex-col gap-1 flex-shrink-0">
+        <div class="flex gap-1 items-center justify-between bg-slate-200 p-1 rounded border border-slate-300">
+          <div class="flex items-center gap-1 text-xs font-mono text-slate-700 min-w-0">
+            <span class="bg-white px-1.5 py-0.5 rounded text-[10px] font-bold border border-slate-300 shadow-2xs whitespace-nowrap flex-shrink-0">
+              <i class="fa-solid fa-i-cursor text-blue-600"></i> <span id="charCount">0/60</span>
+            </span>
+            <button id="resetCursorBtn" class="text-[10px] bg-white border border-slate-400 hover:bg-slate-100 active:bg-slate-200 px-1.5 py-0.5 rounded font-bold transition-colors whitespace-nowrap flex-shrink-0" title="カーソル位置を左上に戻す">
+              <i class="fa-solid fa-rotate-left"></i> 位置リセット
+            </button>
+          </div>
+          
+          <div class="flex gap-1 items-center flex-shrink-0">
+            <button id="toggleKbdBtn" class="ds-btn bg-amber-400 hover:bg-amber-300 text-slate-900 text-xs px-2 py-1 rounded font-bold border border-amber-600 flex items-center gap-1 shadow-xs whitespace-nowrap flex-shrink-0">
+              <i class="fa-solid fa-keyboard"></i>
+              <span>キーボード</span>
+            </button>
+            
+            <button id="sendBtn" class="ds-btn bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1 rounded font-bold border border-blue-900 flex items-center gap-1 shadow-xs whitespace-nowrap flex-shrink-0">
+              <span>送信</span>
+              <i class="fa-solid fa-paper-plane text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Floating Drag Character Badge -->
+        <div id="dragPreview" class="fixed pointer-events-none z-50 hidden bg-amber-300 text-slate-900 border-2 border-slate-800 rounded px-2 py-1 text-base font-bold shadow-2xl transform -translate-x-1/2 -translate-y-1/2">
+          <span id="dragPreviewChar">A</span>
+        </div>
+
+        <!-- Soft Keyboard (Collapsible) -->
+        <div id="softKeyboard" class="bg-slate-200 p-1.5 rounded-lg border-2 border-slate-400 flex flex-col gap-1 select-none hidden shadow-md">
+          <div class="flex gap-1 justify-between items-center text-[11px] font-bold pb-1 border-b border-slate-300">
+            <div class="flex gap-1" id="kbdTabs">
+              <button class="kbd-tab px-2.5 py-0.5 rounded bg-slate-800 text-white border border-slate-900 text-[10px] whitespace-nowrap" data-tab="kana">かな</button>
+              <button class="kbd-tab px-2.5 py-0.5 rounded bg-white text-slate-700 border border-slate-400 text-[10px] whitespace-nowrap" data-tab="abc">ABC</button>
+              <button class="kbd-tab px-2.5 py-0.5 rounded bg-white text-slate-700 border border-slate-400 text-[10px] whitespace-nowrap" data-tab="symbol">記号</button>
+            </div>
+            <div class="flex gap-1 text-[10px]">
+              <button id="dakutenBtn" class="bg-amber-100 hover:bg-amber-200 border border-amber-400 text-amber-900 px-2 py-0.5 rounded font-bold shadow-2xs active:bg-amber-300 whitespace-nowrap" title="直前の文字を濁点/半濁点/小文字に変換">
+                濁点・小
+              </button>
+              <button id="spaceKey" class="bg-white hover:bg-slate-100 border border-slate-400 text-slate-800 px-2 py-0.5 rounded font-bold whitespace-nowrap">
+                スペース
+              </button>
+            </div>
+          </div>
+
+          <!-- Key Grid -->
+          <div id="keyGrid" class="grid grid-cols-10 gap-0.5 text-center">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- User Profile Footer -->
+      <div class="flex items-center justify-between text-xs bg-slate-200 px-2.5 py-1 rounded border border-slate-300 shadow-2xs flex-shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="text-[10px] text-slate-500 font-bold whitespace-nowrap flex-shrink-0">NAME:</span>
+          <input type="text" id="userNameInput" value="Guest" maxlength="10" class="w-24 bg-white border border-slate-400 px-1.5 py-0.5 rounded text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500">
+        </div>
+        <div class="flex items-center gap-1 text-[10px] text-slate-500 font-bold whitespace-nowrap flex-shrink-0">
+          <span>RAKUGAKI CHAT 2S</span>
+        </div>
+      </div>
+
+      <!-- Bottom Padding Buffer for Touch Ergonomics -->
+      <div class="h-2 flex-shrink-0"></div>
+
+    </div>
+  </div>
+
+  <!-- FLIPBOOK PLAYER MODAL -->
+  <div id="flipbookModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-200 border-4 border-slate-600 rounded-xl p-4 w-full max-w-sm flex flex-col gap-3 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-slate-400 pb-2">
+        <h3 class="font-bold text-slate-800 flex items-center gap-1.5 whitespace-nowrap">
+          <i class="fa-solid fa-film text-emerald-600"></i> パラパラ漫画再生
+        </h3>
+        <button id="closeFlipbookBtn" class="text-slate-500 hover:text-slate-800 text-lg font-bold">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Flipbook Display Frame (2:1) -->
+      <div class="relative w-full aspect-[2/1] bg-white border-2 border-slate-600 rounded overflow-hidden shadow-inner flex justify-center items-center">
+        <img id="flipbookImage" src="" alt="Frame" class="w-full h-full object-contain">
+        <div id="flipbookEmptyMsg" class="text-slate-400 font-bold text-xs hidden">メッセージがありません</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between text-xs font-bold text-slate-700">
+          <span class="whitespace-nowrap">コマ: <span id="flipbookFrameNum">0/0</span></span>
+          <div class="flex items-center gap-2">
+            <span class="whitespace-nowrap">速度:</span>
+            <input type="range" id="flipbookSpeed" min="2" max="12" value="6" class="w-24">
+            <span id="flipbookFps" class="whitespace-nowrap">6 fps</span>
+          </div>
+        </div>
+
+        <div class="flex justify-center gap-2 pt-1">
+          <button id="flipbookPrev" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold px-3 py-1 rounded border border-slate-400">
+            <i class="fa-solid fa-backward-step"></i>
+          </button>
+          <button id="flipbookPlayToggle" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-1 rounded border border-emerald-800">
+            <i id="flipbookPlayIcon" class="fa-solid fa-pause"></i>
+          </button>
+          <button id="flipbookNext" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold px-3 py-1 rounded border border-slate-400">
+            <i class="fa-solid fa-forward-step"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRMATION MODAL -->
+  <div id="confirmModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-200 border-3 border-slate-600 rounded-xl p-4 w-full max-w-xs flex flex-col gap-3 shadow-2xl text-center">
+      <div class="text-rose-600 text-2xl">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <p id="confirmMsg" class="font-bold text-slate-800 text-sm">選択中のルームのログを全消去しますか？</p>
+      <div class="flex gap-2 justify-center pt-2">
+        <button id="confirmCancelBtn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold px-4 py-1.5 rounded border border-slate-400 text-xs whitespace-nowrap">
+          キャンセル
+        </button>
+        <button id="confirmOkBtn" class="bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-1.5 rounded border border-rose-800 text-xs shadow-xs whitespace-nowrap">
+          削除する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    // --- Retro SFX Engine (Web Audio API) ---
+    class RetroSFX {
+      constructor() {
+        this.ctx = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            this.ctx = new AudioContextClass();
+          }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      // 1. Organic DS Send Sound (Hyupo / ヒュポッ)
+      playSend() {
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        // "Hyu": Pitch sweep up (280Hz -> 1100Hz)
+        const osc1 = this.ctx.createOscillator();
+        const gain1 = this.ctx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(280, now);
+        osc1.frequency.exponentialRampToValueAtTime(1100, now + 0.035);
+        gain1.gain.setValueAtTime(0.18, now);
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+        osc1.connect(gain1);
+        gain1.connect(this.ctx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.035);
+
+        // "Po": Pitch sweep down (800Hz -> 180Hz)
+        const start2 = now + 0.025;
+        const osc2 = this.ctx.createOscillator();
+        const gain2 = this.ctx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(800, start2);
+        osc2.frequency.exponentialRampToValueAtTime(180, start2 + 0.065);
+        gain2.gain.setValueAtTime(0.25, start2);
+        gain2.gain.exponentialRampToValueAtTime(0.001, start2 + 0.065);
+        osc2.connect(gain2);
+        gain2.connect(this.ctx.destination);
+        osc2.start(start2);
+        osc2.stop(start2 + 0.065);
+      }
+
+      // 2. Soft Key Tap Sound
+      playKeyType() {
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.02);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.02);
+      }
+
+      // 3. Pen Scratching Sound
+      playStroke() {
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const bufferSize = this.ctx.sampleRate * 0.015;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = Math.random() * 2 - 1;
+        }
+
+        const whiteNoise = this.ctx.createBufferSource();
+        whiteNoise.buffer = buffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 2400;
+        filter.Q.value = 3.0;
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.015);
+
+        whiteNoise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        whiteNoise.start(now);
+      }
+
+      // 4. Clear Canvas Sound
+      playClear() {
+        this.init();
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.08);
+      }
+    }
+
+    const sound = new RetroSFX();
+
+    // --- State & Canvas Setup ---
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const chatLog = document.getElementById('chatLog');
+    const userNameInput = document.getElementById('userNameInput');
+    const roomSelect = document.getElementById('roomSelect');
+    const charCountEl = document.getElementById('charCount');
+
+    let currentRoom = 'Room A';
+    let roomMessages = { 'Room A': [], 'Room B': [], 'Room C': [], 'Room D': [] };
+
+    let currentTool = 'pen'; // 'pen', 'eraser', 'line', 'rect'
+    let currentSize = 4;
+    let isDrawing = false;
+    let startX = 0, startY = 0;
+    let snapshot = null;
+
+    // Canvas Text Cursor
+    let cursorX = 12;
+    let cursorY = 24;
+    let typedChars = [];
+
+    // Keyboard Drag Variables
+    let isDraggingKey = false;
+    let activeDragChar = '';
+    const dragPreview = document.getElementById('dragPreview');
+    const dragPreviewChar = document.getElementById('dragPreviewChar');
+
+    // Canvas Initialization
+    function initCanvas() {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = currentSize;
+    }
+    window.addEventListener('load', () => {
+      initCanvas();
+      renderChatLog();
+    });
+
+    // Unlock Web Audio API on first tap
+    document.addEventListener('pointerdown', () => sound.init(), { once: true });
+
+    // --- Tool Selection ---
+    const toolBtns = {
+      pen: document.getElementById('toolPen'),
+      eraser: document.getElementById('toolEraser'),
+      line: document.getElementById('toolLine'),
+      rect: document.getElementById('toolRect')
+    };
+
+    function setTool(toolName) {
+      currentTool = toolName;
+      Object.keys(toolBtns).forEach(t => {
+        if (t === toolName) {
+          toolBtns[t].className = 'tool-btn bg-blue-600 text-white p-1.5 rounded border border-blue-800 text-xs shadow-xs whitespace-nowrap';
+        } else {
+          toolBtns[t].className = 'tool-btn bg-white text-slate-700 p-1.5 rounded border border-slate-400 text-xs shadow-xs hover:bg-slate-100 whitespace-nowrap';
+        }
+      });
+    }
+
+    toolBtns.pen.addEventListener('click', () => setTool('pen'));
+    toolBtns.eraser.addEventListener('click', () => setTool('eraser'));
+    toolBtns.line.addEventListener('click', () => setTool('line'));
+    toolBtns.rect.addEventListener('click', () => setTool('rect'));
+
+    // Brush Sizes
+    document.querySelectorAll('.size-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.size-btn').forEach(b => {
+          b.classList.remove('border-blue-500', 'bg-blue-50', 'border');
+        });
+        const target = e.currentTarget;
+        target.classList.add('border-blue-500', 'bg-blue-50', 'border');
+        currentSize = parseInt(target.dataset.size, 10);
+      });
+    });
+
+    // Clear Local Canvas
+    document.getElementById('clearCanvasBtn').addEventListener('click', () => {
+      sound.playClear();
+      initCanvas();
+      resetCursor();
+      typedChars = [];
+      updateCharCount();
+    });
+
+    // Cursor Reset
+    document.getElementById('resetCursorBtn').addEventListener('click', () => {
+      resetCursor();
+    });
+
+    function resetCursor() {
+      cursorX = 12;
+      cursorY = 24;
+    }
+
+    // --- Canvas Drawing Logic ---
+    function getCanvasPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+      };
+    }
+
+    function startDraw(e) {
+      isDrawing = true;
+      const pos = getCanvasPos(e);
+      startX = pos.x;
+      startY = pos.y;
+      snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.strokeStyle = (currentTool === 'eraser') ? '#ffffff' : '#000000';
+      ctx.lineWidth = (currentTool === 'eraser') ? currentSize * 2.5 : currentSize;
+    }
+
+    function draw(e) {
+      if (!isDrawing) return;
+      const pos = getCanvasPos(e);
+      sound.playStroke();
+
+      if (currentTool === 'pen' || currentTool === 'eraser') {
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      } else if (currentTool === 'line') {
+        ctx.putImageData(snapshot, 0, 0);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      } else if (currentTool === 'rect') {
+        ctx.putImageData(snapshot, 0, 0);
+        ctx.beginPath();
+        ctx.rect(startX, startY, pos.x - startX, pos.y - startY);
+        ctx.stroke();
+      }
+    }
+
+    function stopDraw() {
+      isDrawing = false;
+    }
+
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDraw);
+    canvas.addEventListener('mouseleave', stopDraw);
+
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDraw(e); });
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e); });
+    canvas.addEventListener('touchend', stopDraw);
+
+    // --- Soft Keyboard & Character Placement ---
+    const softKeyboard = document.getElementById('softKeyboard');
+    const toggleKbdBtn = document.getElementById('toggleKbdBtn');
+    const keyGrid = document.getElementById('keyGrid');
+
+    toggleKbdBtn.addEventListener('click', () => {
+      softKeyboard.classList.toggle('hidden');
+    });
+
+    const kbdSets = {
+      kana: [
+        'あ','い','う','え','お','か','き','く','け','こ',
+        'さ','し','す','せ','そ','た','ち','つ','て','と',
+        'な','に','ぬ','ね','の','は','ひ','ふ','へ','ほ',
+        'ま','み','む','め','も','や','ゆ','よ','ら','り',
+        'る','れ','ろ','わ','を','ん','っ','ゃ','ゅ','ょ'
+      ],
+      abc: [
+        'A','B','C','D','E','F','G','H','I','J',
+        'K','L','M','N','O','P','Q','R','S','T',
+        'U','V','W','X','Y','Z','0','1','2','3',
+        '4','5','6','7','8','9','!','?','@','#'
+      ],
+      symbol: [
+        '♂','♀','α','β','π','Ω','∞','∴','∵','♭',
+        '♯','†','‡','§','¶','•','▲','▼','◆','■',
+        '★','☆','♡','♦','♠','♣','♪','♨','〠','✈'
+      ]
+    };
+
+    let activeTab = 'kana';
+
+    function renderKeyboard() {
+      keyGrid.innerHTML = '';
+      kbdSets[activeTab].forEach(char => {
+        const btn = document.createElement('button');
+        btn.className = 'key-btn bg-white hover:bg-slate-100 border border-slate-300 rounded text-slate-800 text-xs font-bold py-1 shadow-2xs active:bg-amber-200 select-none touch-none whitespace-nowrap';
+        btn.textContent = char;
+        btn.dataset.char = char;
+
+        // Click to type
+        btn.addEventListener('click', () => {
+          typeCharOnCanvas(char);
+        });
+
+        // Touch Drag & Drop
+        btn.addEventListener('pointerdown', (e) => {
+          isDraggingKey = true;
+          activeDragChar = char;
+          dragPreviewChar.textContent = char;
+          updateDragPreviewPos(e);
+          dragPreview.classList.remove('hidden');
+        });
+
+        keyGrid.appendChild(btn);
+      });
+    }
+
+    document.querySelectorAll('.kbd-tab').forEach(tabBtn => {
+      tabBtn.addEventListener('click', (e) => {
+        document.querySelectorAll('.kbd-tab').forEach(b => {
+          b.className = 'kbd-tab px-2.5 py-0.5 rounded bg-white text-slate-700 border border-slate-400 text-[10px] whitespace-nowrap';
+        });
+        e.currentTarget.className = 'kbd-tab px-2.5 py-0.5 rounded bg-slate-800 text-white border border-slate-900 text-[10px] whitespace-nowrap';
+        activeTab = e.currentTarget.dataset.tab;
+        renderKeyboard();
+      });
+    });
+
+    renderKeyboard();
+
+    function updateDragPreviewPos(e) {
+      dragPreview.style.left = `${e.clientX}px`;
+      dragPreview.style.top = `${e.clientY}px`;
+    }
+
+    document.addEventListener('pointermove', (e) => {
+      if (isDraggingKey) {
+        updateDragPreviewPos(e);
+      }
+    });
+
+    document.addEventListener('pointerup', (e) => {
+      if (isDraggingKey) {
+        isDraggingKey = false;
+        dragPreview.classList.add('hidden');
+
+        // Check if dropped on canvas
+        const rect = canvas.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top && e.clientY <= rect.bottom
+        ) {
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          const dropX = (e.clientX - rect.left) * scaleX;
+          const dropY = (e.clientY - rect.top) * scaleY;
+
+          // Stamp char at drop location
+          stampChar(activeDragChar, dropX, dropY);
+          cursorX = dropX + 16;
+          cursorY = dropY;
+        }
+      }
+    });
+
+    // Type character at cursor position
+    function typeCharOnCanvas(char) {
+      if (typedChars.length >= 60) return;
+      sound.playKeyType();
+
+      stampChar(char, cursorX, cursorY);
+      typedChars.push({ char, x: cursorX, y: cursorY });
+
+      cursorX += 16;
+      if (cursorX > canvas.width - 20) {
+        cursorX = 12;
+        cursorY += 20;
+      }
+      updateCharCount();
+    }
+
+    function stampChar(char, x, y) {
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 16px "DotGothic16", monospace';
+      ctx.fillText(char, x, y);
+    }
+
+    function updateCharCount() {
+      charCountEl.textContent = `${typedChars.length}/60`;
+    }
+
+    // Space & Dakuten Buttons
+    document.getElementById('spaceKey').addEventListener('click', () => typeCharOnCanvas(' '));
+
+    document.getElementById('dakutenBtn').addEventListener('click', () => {
+      if (typedChars.length === 0) return;
+      const last = typedChars[typedChars.length - 1];
+      const dakutenMap = {
+        'か':'が','き':'ぎ','く':'ぐ','け':'げ','こ':'ご',
+        'さ':'ざ','し':'じ','す':'ず','せ':'ぜ','そ':'ぞ',
+        'た':'だ','ち':'ぢ','つ':'っ','て':'で','と':'ど',
+        'は':'ば','ひ':'び','ふ':'ぶ','へ':'べ','ほ':'ぼ',
+        'つ':'づ','や':'ゃ','ゆ':'ゅ','よ':'ょ','あ':'ぁ',
+        'い':'ぃ','う':'ぅ','え':'ぇ','お':'ぉ'
+      };
+      if (dakutenMap[last.char]) {
+        // Redraw last character as modified
+        sound.playKeyType();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(last.x - 2, last.y - 14, 18, 18);
+        last.char = dakutenMap[last.char];
+        stampChar(last.char, last.x, last.y);
+      }
+    });
+
+    // Physical Keyboard Input
+    window.addEventListener('keydown', (e) => {
+      if (document.activeElement === userNameInput) return;
+      if (e.key === 'Backspace') {
+        if (typedChars.length > 0) {
+          const last = typedChars.pop();
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(last.x - 2, last.y - 14, 18, 18);
+          cursorX = last.x;
+          cursorY = last.y;
+          updateCharCount();
+        }
+      } else if (e.key.length === 1) {
+        typeCharOnCanvas(e.key);
+      }
+    });
+
+    // --- Message Sending & Chat Log ---
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.addEventListener('click', sendMessage);
+
+    function sendMessage() {
+      const imgData = canvas.toDataURL('image/png');
+      const author = userNameInput.value.trim() || 'Guest';
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const msgObj = {
+        id: Date.now(),
+        author,
+        time: timeStr,
+        image: imgData
+      };
+
+      roomMessages[currentRoom].push(msgObj);
+      sound.playSend();
+      renderChatLog();
+
+      // Reset canvas
+      initCanvas();
+      resetCursor();
+      typedChars = [];
+      updateCharCount();
+    }
+
+    function renderChatLog() {
+      chatLog.innerHTML = '';
+      const list = roomMessages[currentRoom];
+
+      list.forEach(msg => {
+        const item = document.createElement('div');
+        item.className = 'relative w-full aspect-[2/1] bg-white snap-start flex-shrink-0 cursor-pointer group';
+        
+        const img = document.createElement('img');
+        img.src = msg.image;
+        img.className = 'w-full h-full object-contain';
+        item.appendChild(img);
+
+        // Retro Username Overlay Tag
+        const tag = document.createElement('div');
+        tag.className = 'absolute top-1 right-1 bg-slate-900/70 text-white font-dot text-[9px] px-1.5 py-0.5 rounded backdrop-blur-2xs opacity-80 group-hover:opacity-100 transition-opacity whitespace-nowrap';
+        tag.textContent = `${msg.author} • ${msg.time}`;
+        item.appendChild(tag);
+
+        // Quote drawing into canvas on tap
+        item.addEventListener('click', () => {
+          const loadImg = new Image();
+          loadImg.onload = () => {
+            ctx.drawImage(loadImg, 0, 0);
+          };
+          loadImg.src = msg.image;
+        });
+
+        chatLog.appendChild(item);
+      });
+
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    // Room Switcher
+    roomSelect.addEventListener('change', (e) => {
+      currentRoom = e.target.value;
+      renderChatLog();
+    });
+
+    // --- Flipbook & Room Clear Modals ---
+    const flipbookModal = document.getElementById('flipbookModal');
+    const playFlipbookBtn = document.getElementById('playFlipbookBtn');
+    const closeFlipbookBtn = document.getElementById('closeFlipbookBtn');
+    const flipbookImage = document.getElementById('flipbookImage');
+    const flipbookFrameNum = document.getElementById('flipbookFrameNum');
+    const flipbookSpeed = document.getElementById('flipbookSpeed');
+    const flipbookFps = document.getElementById('flipbookFps');
+    const flipbookPlayToggle = document.getElementById('flipbookPlayToggle');
+    const flipbookPlayIcon = document.getElementById('flipbookPlayIcon');
+
+    let flipInterval = null;
+    let flipIndex = 0;
+    let isPlaying = false;
+
+    playFlipbookBtn.addEventListener('click', () => {
+      const list = roomMessages[currentRoom];
+      if (list.length === 0) return;
+      flipIndex = 0;
+      flipbookModal.classList.remove('hidden');
+      startFlipbook();
+    });
+
+    closeFlipbookBtn.addEventListener('click', stopFlipbook);
+
+    function startFlipbook() {
+      const list = roomMessages[currentRoom];
+      if (list.length === 0) return;
+      isPlaying = true;
+      flipbookPlayIcon.className = 'fa-solid fa-pause';
+
+      clearInterval(flipInterval);
+      const fps = parseInt(flipbookSpeed.value, 10);
+      flipInterval = setInterval(() => {
+        flipIndex = (flipIndex + 1) % list.length;
+        updateFlipFrame();
+      }, 1000 / fps);
+      updateFlipFrame();
+    }
+
+    function stopFlipbook() {
+      isPlaying = false;
+      clearInterval(flipInterval);
+      flipbookModal.classList.add('hidden');
+    }
+
+    function updateFlipFrame() {
+      const list = roomMessages[currentRoom];
+      if (list.length === 0) return;
+      flipbookImage.src = list[flipIndex].image;
+      flipbookFrameNum.textContent = `${flipIndex + 1}/${list.length}`;
+    }
+
+    flipbookSpeed.addEventListener('input', (e) => {
+      flipbookFps.textContent = `${e.target.value} fps`;
+      if (isPlaying) startFlipbook();
+    });
+
+    flipbookPlayToggle.addEventListener('click', () => {
+      if (isPlaying) {
+        isPlaying = false;
+        clearInterval(flipInterval);
+        flipbookPlayIcon.className = 'fa-solid fa-play';
+      } else {
+        startFlipbook();
+      }
+    });
+
+    document.getElementById('flipbookPrev').addEventListener('click', () => {
+      const list = roomMessages[currentRoom];
+      if (list.length === 0) return;
+      flipIndex = (flipIndex - 1 + list.length) % list.length;
+      updateFlipFrame();
+    });
+
+    document.getElementById('flipbookNext').addEventListener('click', () => {
+      const list = roomMessages[currentRoom];
+      if (list.length === 0) return;
+      flipIndex = (flipIndex + 1) % list.length;
+      updateFlipFrame();
+    });
+
+    // Room Log Clear Modal
+    const confirmModal = document.getElementById('confirmModal');
+    const clearRoomLogBtn = document.getElementById('clearRoomLogBtn');
+    const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+    const confirmOkBtn = document.getElementById('confirmOkBtn');
+
+    clearRoomLogBtn.addEventListener('click', () => {
+      confirmModal.classList.remove('hidden');
+    });
+
+    confirmCancelBtn.addEventListener('click', () => {
+      confirmModal.classList.add('hidden');
+    });
+
+    confirmOkBtn.addEventListener('click', () => {
+      roomMessages[currentRoom] = [];
+      renderChatLog();
+      confirmModal.classList.add('hidden');
+      sound.playClear();
+    });
+  </script>
+</body>
+</html>
