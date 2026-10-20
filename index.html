@@ -84,7 +84,7 @@
     <div id="sysNotificationBanner" class="hidden absolute top-2 left-4 right-4 z-40 bg-amber-300 text-slate-900 border-2 border-slate-800 rounded-lg px-3 py-1.5 shadow-xl flex items-center justify-between text-xs font-bold animate-slide-down font-dot">
       <div class="flex items-center gap-2 min-w-0">
         <i class="fa-solid fa-bell text-amber-800 animate-bounce text-xs flex-shrink-0"></i>
-        <span id="sysNotificationText" class="truncate">Room B に Guest が入室しました</span>
+        <span id="sysNotificationText" class="truncate">通知はありません</span>
       </div>
       <button id="closeNotificationBtn" class="text-slate-700 hover:text-black ml-2 flex-shrink-0">
         <i class="fa-solid fa-xmark"></i>
@@ -115,6 +115,12 @@
             <i class="fa-solid fa-trash-can text-[9px]"></i><span>ログ消去</span>
           </button>
         </div>
+      </div>
+
+      <div class="flex mt-1 flex-shrink-0">
+        <button id="exportLogBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded text-xs font-bold shadow active:scale-95 flex items-center justify-center gap-1.5 transition-transform whitespace-nowrap">
+          <i class="fa-solid fa-download text-[10px]"></i><span>ログ出力（PNG / GIF）</span>
+        </button>
       </div>
 
       <!-- Chat Log Stream (Seamless Vertical Alignment: Shows ~3 cards cleanly) -->
@@ -302,6 +308,32 @@
     </div>
   </div>
 
+  <!-- LOG EXPORT MODAL -->
+  <div id="exportModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-200 border-4 border-slate-600 rounded-xl p-4 w-full max-w-sm flex flex-col gap-3 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-slate-400 pb-2">
+        <h3 class="font-bold text-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-download text-indigo-600"></i> ログ出力</h3>
+        <button id="closeExportBtn" class="text-slate-500 hover:text-slate-800 text-lg font-bold"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p id="exportLogCount" class="text-xs text-slate-600 font-bold">Room A：0ページ</p>
+      <section class="bg-white border border-slate-300 rounded-lg p-3 flex flex-col gap-2">
+        <h4 class="text-xs font-bold text-slate-800">選択したページをPNGで出力</h4>
+        <p class="text-[10px] text-slate-500">開始ページから連続する最大10ページをZIPで保存します。</p>
+        <div class="flex items-center gap-2 text-xs">
+          <label>開始 <input id="exportStartPage" type="number" min="1" value="1" class="w-16 border border-slate-400 rounded px-1.5 py-1"></label>
+          <label>ページ数 <input id="exportPageCount" type="number" min="1" max="10" value="1" class="w-16 border border-slate-400 rounded px-1.5 py-1"></label>
+        </div>
+        <button id="exportPagesBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded text-xs">PNGをZIPで保存</button>
+      </section>
+      <section class="bg-white border border-slate-300 rounded-lg p-3 flex flex-col gap-2">
+        <h4 class="text-xs font-bold text-slate-800">パラパラ漫画をGIFで出力</h4>
+        <label class="text-xs text-slate-700">再生速度 <select id="exportGifFps" class="border border-slate-400 rounded px-2 py-1"><option value="2">2 fps</option><option value="4">4 fps</option><option value="6" selected>6 fps</option><option value="8">8 fps</option><option value="12">12 fps</option></select></label>
+        <button id="exportGifBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded text-xs">全ページをGIFで保存</button>
+      </section>
+      <p id="exportStatus" class="text-[10px] text-slate-600 min-h-4"></p>
+    </div>
+  </div>
+
   <!-- CONFIRMATION MODAL -->
   <div id="confirmModal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-slate-200 border-3 border-slate-600 rounded-xl p-4 w-full max-w-xs flex flex-col gap-3 shadow-2xl text-center">
@@ -396,7 +428,6 @@
       peer = new Peer(tempId);
 
       peer.on('open', (id) => {
-        mySessionId = id;
         tryConnectToRoomHost();
       });
 
@@ -426,6 +457,7 @@
         conn.send({
           type: 'JOIN',
           userName: userName,
+          userId: mySessionId,
           roomId: currentRoom
         });
       });
@@ -494,11 +526,12 @@
 
     function handleP2PHostData(data, conn) {
       if (data.type === 'JOIN') {
-        conn.userName = data.userName;
+        conn.userName = (data.userName || '').trim().slice(0, 10) || 'Guest';
+        conn.userId = data.userId || conn.peer;
         conn.roomId = data.roomId;
         hostConnMap.set(conn.peer, conn);
 
-        const joinMsg = `${data.roomId} に ${data.userName} が入室しました`;
+        const joinMsg = `${data.roomId || currentRoom} に ${conn.userName} が入室しました`;
         showSysNotification(joinMsg);
         broadcastToClients({ type: 'SYS_NOTIF', text: joinMsg }, conn.peer);
 
@@ -509,10 +542,19 @@
           messages: roomMessages[currentRoom] || []
         });
       } else if (data.type === 'NEW_MSG') {
-        if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
-        roomMessages[currentRoom].push(data.message);
-        renderChatLog();
-        broadcastToClients({ type: 'NEW_MSG', roomId: currentRoom, message: data.message });
+        const roomId = data.roomId || conn.roomId || currentRoom;
+        data.message.authorId = data.message.authorId || conn.userId || conn.peer;
+        if (!roomMessages[roomId]) roomMessages[roomId] = [];
+        if (!roomMessages[roomId].some(msg => msg.id === data.message.id)) {
+          roomMessages[roomId].push(data.message);
+          if (roomId === currentRoom) renderChatLog();
+          broadcastToClients({ type: 'NEW_MSG', roomId, message: data.message }, conn.peer);
+        }
+      } else if (data.type === 'NAME_CHANGE') {
+        const userName = (data.userName || '').trim().slice(0, 10) || 'Guest';
+        conn.userName = userName;
+        updateLocalAuthorName(conn.userId || conn.peer, userName);
+        broadcastToClients({ type: 'AUTHOR_CHANGE', userId: conn.userId || conn.peer, userName });
       } else if (data.type === 'CLEAR_LOG') {
         roomMessages[currentRoom] = [];
         renderChatLog();
@@ -526,10 +568,12 @@
         renderChatLog();
       } else if (data.type === 'NEW_MSG') {
         if (!roomMessages[data.roomId]) roomMessages[data.roomId] = [];
-        roomMessages[data.roomId].push(data.message);
-        if (data.roomId === currentRoom) {
-          renderChatLog();
+        if (!roomMessages[data.roomId].some(msg => msg.id === data.message.id)) {
+          roomMessages[data.roomId].push(data.message);
+          if (data.roomId === currentRoom) renderChatLog();
         }
+      } else if (data.type === 'AUTHOR_CHANGE') {
+        updateLocalAuthorName(data.userId, data.userName);
       } else if (data.type === 'CLEAR_LOG') {
         roomMessages[data.roomId] = [];
         if (data.roomId === currentRoom) {
@@ -546,6 +590,20 @@
           conn.send(data);
         }
       });
+    }
+
+    function updateLocalAuthorName(userId, userName) {
+      if (!userId) return;
+      Object.values(roomMessages).forEach(messages => {
+        messages.forEach(msg => {
+          const belongsToUser = msg.authorId === userId || (msg.id && msg.id.startsWith(`${userId}_`));
+          if (belongsToUser) {
+            msg.author = userName;
+            msg.authorId = userId;
+          }
+        });
+      });
+      renderChatLog();
     }
 
     // --- Firebase Sync System (When Config Exists) ---
@@ -617,6 +675,8 @@
               const oldUser = previousPresenceMap.get(id);
               if (oldUser.roomId !== user.roomId) {
                 showSysNotification(`${user.userName || 'Guest'} が ${oldUser.roomId} から ${user.roomId} に移動しました`);
+              } else if (oldUser.userName !== user.userName) {
+                showSysNotification(`${oldUser.userName || 'Guest'} が ${user.userName || 'Guest'} に名前を変更しました`);
               }
             }
           });
@@ -645,6 +705,30 @@
         }, { merge: true });
       } catch (e) {
         console.warn("Presence update error:", e);
+      }
+    }
+
+    async function changeUserName(newName) {
+      const userId = mySessionId;
+      updateLocalAuthorName(userId, newName);
+
+      if (isFirebaseActive && db && currentUser) {
+        const allMessages = Object.values(roomMessages).flat();
+        for (const msg of allMessages) {
+          if (msg.authorId === userId && msg.id) {
+            try {
+              const msgRef = doc(db, 'artifacts', appId, 'public', 'data', 'messages', msg.id);
+              await setDoc(msgRef, { author: newName }, { merge: true });
+            } catch (e) {
+              console.warn('Message author update error:', e);
+            }
+          }
+        }
+        await updatePresenceDoc();
+      } else if (isHost) {
+        broadcastToClients({ type: 'AUTHOR_CHANGE', userId, userName: newName });
+      } else if (clientHostConn && clientHostConn.open) {
+        clientHostConn.send({ type: 'NAME_CHANGE', userId, userName: newName });
       }
     }
 
@@ -861,9 +945,9 @@
     document.addEventListener('pointerdown', () => sound.init(), { once: true });
 
     userNameInput.addEventListener('change', () => {
-      if (isFirebaseActive) {
-        updatePresenceDoc();
-      }
+      const newName = userNameInput.value.trim().slice(0, 10) || 'Guest';
+      userNameInput.value = newName;
+      changeUserName(newName);
     });
 
     // --- Tool Selection ---
@@ -1154,6 +1238,7 @@
       const msgObj = {
         roomId: currentRoom,
         author,
+        authorId: mySessionId,
         time: timeStr,
         image: imgData,
         createdAt: Date.now()
@@ -1169,13 +1254,15 @@
           console.error("Cloud send error, falling back locally:", err);
         }
       } else {
-        msgObj.id = Date.now().toString();
+        msgObj.id = mySessionId + '_' + Date.now().toString() + '_' + Math.random().toString(36).slice(2, 8);
         // The host stores and broadcasts the message. A guest waits for that
         // broadcast so it does not append the same message twice locally.
         if (isHost) {
           if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
-          roomMessages[currentRoom].push(msgObj);
-          renderChatLog();
+          if (!roomMessages[currentRoom].some(msg => msg.id === msgObj.id)) {
+            roomMessages[currentRoom].push(msgObj);
+            renderChatLog();
+          }
           broadcastToClients({ type: 'NEW_MSG', roomId: currentRoom, message: msgObj });
         } else if (clientHostConn && clientHostConn.open) {
           clientHostConn.send({ type: 'NEW_MSG', message: msgObj });
@@ -1247,6 +1334,105 @@
     let flipInterval = null;
     let flipIndex = 0;
     let isPlaying = false;
+
+    // --- Log Export ---
+    const exportModal = document.getElementById('exportModal');
+    const exportStatus = document.getElementById('exportStatus');
+    const exportStartPage = document.getElementById('exportStartPage');
+    const exportPageCount = document.getElementById('exportPageCount');
+    const exportLogCount = document.getElementById('exportLogCount');
+
+    document.getElementById('exportLogBtn').addEventListener('click', () => {
+      const total = (roomMessages[currentRoom] || []).length;
+      exportLogCount.textContent = `${currentRoom}：${total}ページ`;
+      exportStartPage.max = String(Math.max(1, total));
+      exportStartPage.value = '1';
+      exportPageCount.value = String(Math.max(1, Math.min(10, total)));
+      exportStatus.textContent = '';
+      exportModal.classList.remove('hidden');
+    });
+    document.getElementById('closeExportBtn').addEventListener('click', () => exportModal.classList.add('hidden'));
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+
+    function loadExportImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('ログ画像を読み込めませんでした'));
+        img.src = src;
+      });
+    }
+
+    document.getElementById('exportPagesBtn').addEventListener('click', async () => {
+      const list = roomMessages[currentRoom] || [];
+      if (!list.length) { exportStatus.textContent = '出力できるページがありません。'; return; }
+      const start = Math.max(1, Math.min(list.length, Number(exportStartPage.value) || 1));
+      const count = Math.max(1, Math.min(10, Number(exportPageCount.value) || 1, list.length - start + 1));
+      exportStartPage.value = String(start);
+      exportPageCount.value = String(count);
+      exportStatus.textContent = 'PNGをまとめています…';
+      try {
+        const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+        const zip = new JSZip();
+        for (let i = start - 1; i < start - 1 + count; i++) {
+          const img = await loadExportImage(list[i].image);
+          const canvas = document.createElement('canvas');
+          canvas.width = 320; canvas.height = 120;
+          const c = canvas.getContext('2d');
+          c.fillStyle = '#ffffff'; c.fillRect(0, 0, canvas.width, canvas.height);
+          c.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+          if (!blob) throw new Error('PNGを作成できませんでした');
+          zip.file(`page_${String(i + 1).padStart(3, '0')}.png`, blob);
+        }
+        const blob = await zip.generateAsync({ type: 'blob' });
+        downloadBlob(blob, `rakugaki_${currentRoom.replace(/\s+/g, '_')}_pages_${start}-${start + count - 1}.zip`);
+        exportStatus.textContent = `${count}ページをZIPで保存しました。`;
+      } catch (err) {
+        console.error('Page export error:', err);
+        exportStatus.textContent = `出力に失敗しました：${err.message || err}`;
+      }
+    });
+
+    document.getElementById('exportGifBtn').addEventListener('click', async () => {
+      const list = roomMessages[currentRoom] || [];
+      if (!list.length) { exportStatus.textContent = '出力できるページがありません。'; return; }
+      exportStatus.textContent = `GIFを作成しています…（${list.length}ページ）`;
+      try {
+        const { GIFEncoder, quantize, applyPalette } = await import('https://esm.sh/gifenc@1.0.3');
+        const encoder = GIFEncoder();
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = 320; frameCanvas.height = 120;
+        const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+        const fps = Number(document.getElementById('exportGifFps').value) || 6;
+        for (let i = 0; i < list.length; i++) {
+          const img = await loadExportImage(list[i].image);
+          frameCtx.fillStyle = '#ffffff'; frameCtx.fillRect(0, 0, 320, 120);
+          frameCtx.drawImage(img, 0, 0, 320, 120);
+          const rgba = frameCtx.getImageData(0, 0, 320, 120).data;
+          const palette = quantize(rgba, 256);
+          const indexed = applyPalette(rgba, palette);
+          encoder.writeFrame(indexed, 320, 120, { palette, delay: Math.round(1000 / fps), repeat: 0 });
+          if (i % 5 === 0 || i === list.length - 1) exportStatus.textContent = `GIFを作成しています… ${i + 1}/${list.length}`;
+        }
+        encoder.finish();
+        downloadBlob(new Blob([encoder.bytes()], { type: 'image/gif' }), `rakugaki_${currentRoom.replace(/\s+/g, '_')}.gif`);
+        exportStatus.textContent = 'GIFを保存しました。';
+      } catch (err) {
+        console.error('GIF export error:', err);
+        exportStatus.textContent = `GIF出力に失敗しました：${err.message || err}`;
+      }
+    });
 
     playFlipbookBtn.addEventListener('click', () => {
       const list = roomMessages[currentRoom] || [];
