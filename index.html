@@ -8,6 +8,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- PeerJS for Zero-Config P2P Multiplayer on GitHub Pages -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Inter:wght@400;600;700&display=swap');
 
@@ -95,7 +97,7 @@
       <!-- Top Screen Header Bar -->
       <div class="flex items-center justify-between bg-slate-300 px-2 py-1 rounded border border-slate-400 text-xs font-mono font-bold text-slate-700 shadow-2xs flex-shrink-0 gap-1">
         <div class="flex items-center gap-1.5 min-w-0">
-          <i class="fa-solid fa-wifi text-emerald-600 text-[10px] flex-shrink-0"></i>
+          <i id="netStatusIcon" class="fa-solid fa-wifi text-emerald-600 text-[10px] flex-shrink-0"></i>
           <span class="text-[11px] font-dot truncate flex-shrink-0">RAKUGAKI CHAT</span>
           <select id="roomSelect" class="bg-white border border-slate-400 rounded px-1 text-[11px] font-bold text-slate-800 focus:outline-none cursor-pointer flex-shrink-0">
             <option value="Room A">Room A</option>
@@ -318,7 +320,7 @@
     </div>
   </div>
 
-  <!-- JAVASCRIPT LOGIC WITH REALTIME ONLINE SYNC & PRESENCE -->
+  <!-- JAVASCRIPT LOGIC WITH AUTOMATIC P2P (PEERJS) & FIREBASE SYNC -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -332,48 +334,221 @@
     let auth = null;
     let currentUser = null;
     let mySessionId = 'session_' + Math.random().toString(36).substring(2, 9);
+    let isFirebaseActive = false;
+
+    // --- PeerJS P2P Networking State ---
+    let peer = null;
+    let isHost = false;
+    let hostConnMap = new Map();
+    let clientHostConn = null;
 
     if (firebaseConfig) {
       try {
         const app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         auth = getAuth(app);
+        isFirebaseActive = true;
       } catch (e) {
-        console.warn("Online sync offline mode fallback:", e);
+        console.warn("Firebase fallback to PeerJS P2P mode:", e);
       }
     }
 
     async function initAuthAndSync() {
-      if (!auth) return;
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          const userCred = await signInWithCustomToken(auth, __initial_auth_token);
-          currentUser = userCred.user;
-        } else {
-          const userCred = await signInAnonymously(auth);
-          currentUser = userCred.user;
-        }
-      } catch (err) {
-        console.warn("Auth token failed, attempting anonymous sign-in:", err);
+      if (isFirebaseActive && auth) {
         try {
-          const userCred = await signInAnonymously(auth);
-          currentUser = userCred.user;
-        } catch (e) {
-          console.error("Anonymous authentication failed:", e);
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            const userCred = await signInWithCustomToken(auth, __initial_auth_token);
+            currentUser = userCred.user;
+          } else {
+            const userCred = await signInAnonymously(auth);
+            currentUser = userCred.user;
+          }
+        } catch (err) {
+          console.warn("Firebase Auth error:", err);
         }
-      }
 
-      if (currentUser) {
-        mySessionId = currentUser.uid;
-      }
+        if (currentUser) {
+          mySessionId = currentUser.uid;
+        }
 
-      if (db) {
-        subscribeToRoomMessages();
-        setupPresenceSystem();
+        if (db) {
+          subscribeToRoomMessages();
+          setupPresenceSystem();
+        }
+      } else {
+        // --- GitHub Pages Standard Mode: PeerJS P2P Online Connection ---
+        initPeerJSP2P();
       }
     }
 
-    // Subscribe to shared room messages
+    // --- PeerJS P2P Online Engine (Zero-Config) ---
+    function initPeerJSP2P() {
+      if (!window.Peer) return;
+
+      if (peer) {
+        try { peer.destroy(); } catch(e){}
+      }
+      isHost = false;
+      clientHostConn = null;
+      hostConnMap.clear();
+
+      const tempId = 'user_' + Math.random().toString(36).substring(2, 9);
+      peer = new Peer(tempId);
+
+      peer.on('open', (id) => {
+        mySessionId = id;
+        tryConnectToRoomHost();
+      });
+
+      peer.on('error', (err) => {
+        console.warn("P2P Peer error:", err);
+        if (!isHost) {
+          becomeRoomHost();
+        }
+      });
+    }
+
+    function getRoomHostId(room) {
+      return 'rgk2s_room_' + room.replace(/\s+/g, '_').toLowerCase();
+    }
+
+    function tryConnectToRoomHost() {
+      const targetHostId = getRoomHostId(currentRoom);
+      const conn = peer.connect(targetHostId);
+      let connected = false;
+
+      conn.on('open', () => {
+        connected = true;
+        isHost = false;
+        clientHostConn = conn;
+
+        const userName = userNameInput.value.trim() || 'Guest';
+        conn.send({
+          type: 'JOIN',
+          userName: userName,
+          roomId: currentRoom
+        });
+      });
+
+      conn.on('data', (data) => {
+        handleP2PClientData(data);
+      });
+
+      conn.on('close', () => {
+        if (!isHost) {
+          showSysNotification(`${currentRoom} の通信が切断されました。再接続を試みています...`);
+          setTimeout(() => becomeRoomHost(), 1500);
+        }
+      });
+
+      // Timeout fallback: if no host responds in 2.5s, become the room host!
+      setTimeout(() => {
+        if (!connected && !isHost) {
+          try { conn.close(); } catch(e){}
+          becomeRoomHost();
+        }
+      }, 2500);
+    }
+
+    function becomeRoomHost() {
+      if (isHost) return;
+
+      if (peer) {
+        try { peer.destroy(); } catch(e){}
+      }
+
+      const hostId = getRoomHostId(currentRoom);
+      peer = new Peer(hostId);
+
+      peer.on('open', () => {
+        isHost = true;
+        showSysNotification(`${currentRoom} のホストになりました（オンライン待機中）`);
+      });
+
+      peer.on('connection', (conn) => {
+        conn.on('open', () => {
+          // Connected new peer
+        });
+
+        conn.on('data', (data) => {
+          handleP2PHostData(data, conn);
+        });
+
+        conn.on('close', () => {
+          if (conn.userName) {
+            const leaveMsg = `${conn.roomId || currentRoom} から ${conn.userName} が退室しました`;
+            showSysNotification(leaveMsg);
+            broadcastToClients({ type: 'SYS_NOTIF', text: leaveMsg }, conn.peer);
+          }
+          hostConnMap.delete(conn.peer);
+        });
+      });
+
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          isHost = false;
+          setTimeout(() => initPeerJSP2P(), 1000);
+        }
+      });
+    }
+
+    function handleP2PHostData(data, conn) {
+      if (data.type === 'JOIN') {
+        conn.userName = data.userName;
+        conn.roomId = data.roomId;
+        hostConnMap.set(conn.peer, conn);
+
+        const joinMsg = `${data.roomId} に ${data.userName} が入室しました`;
+        showSysNotification(joinMsg);
+        broadcastToClients({ type: 'SYS_NOTIF', text: joinMsg }, conn.peer);
+
+        // Send chat history to newly joined user
+        conn.send({
+          type: 'SYNC_LOG',
+          roomId: currentRoom,
+          messages: roomMessages[currentRoom] || []
+        });
+      } else if (data.type === 'NEW_MSG') {
+        if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
+        roomMessages[currentRoom].push(data.message);
+        renderChatLog();
+        broadcastToClients({ type: 'NEW_MSG', roomId: currentRoom, message: data.message });
+      } else if (data.type === 'CLEAR_LOG') {
+        roomMessages[currentRoom] = [];
+        renderChatLog();
+        broadcastToClients({ type: 'CLEAR_LOG', roomId: currentRoom });
+      }
+    }
+
+    function handleP2PClientData(data) {
+      if (data.type === 'SYNC_LOG') {
+        roomMessages[data.roomId] = data.messages || [];
+        renderChatLog();
+      } else if (data.type === 'NEW_MSG') {
+        if (!roomMessages[data.roomId]) roomMessages[data.roomId] = [];
+        roomMessages[data.roomId].push(data.message);
+        if (data.roomId === currentRoom) {
+          renderChatLog();
+        }
+      } else if (data.type === 'CLEAR_LOG') {
+        roomMessages[data.roomId] = [];
+        if (data.roomId === currentRoom) {
+          renderChatLog();
+        }
+      } else if (data.type === 'SYS_NOTIF') {
+        showSysNotification(data.text);
+      }
+    }
+
+    function broadcastToClients(data, excludePeerId = null) {
+      hostConnMap.forEach((conn, peerId) => {
+        if (peerId !== excludePeerId && conn.open) {
+          conn.send(data);
+        }
+      });
+    }
+
+    // --- Firebase Sync System (When Config Exists) ---
     function subscribeToRoomMessages() {
       if (!db) return;
 
@@ -427,30 +602,25 @@
 
         snapshot.docs.forEach(docSnap => {
           const data = docSnap.data();
-          // Filter out stale users (> 25 seconds inactive)
           if (data && data.lastSeen && (now - data.lastSeen < 25000)) {
             currentPresenceMap.set(docSnap.id, data);
           }
         });
 
         if (previousPresenceMap !== null) {
-          // Check for joins / room switches
           currentPresenceMap.forEach((user, id) => {
-            if (id === mySessionId) return; // Ignore self
+            if (id === mySessionId) return;
 
             if (!previousPresenceMap.has(id)) {
-              // New user joined
               showSysNotification(`${user.roomId} に ${user.userName || 'Guest'} が入室しました`);
             } else {
               const oldUser = previousPresenceMap.get(id);
               if (oldUser.roomId !== user.roomId) {
-                // Room switched
                 showSysNotification(`${user.userName || 'Guest'} が ${oldUser.roomId} から ${user.roomId} に移動しました`);
               }
             }
           });
 
-          // Check for leaves
           previousPresenceMap.forEach((user, id) => {
             if (id === mySessionId) return;
             if (!currentPresenceMap.has(id)) {
@@ -632,8 +802,8 @@
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, now); // A5
-        osc.frequency.setValueAtTime(1760, now + 0.06); // A6
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.setValueAtTime(1760, now + 0.06);
         
         gain.gain.setValueAtTime(0.2, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
@@ -690,9 +860,10 @@
 
     document.addEventListener('pointerdown', () => sound.init(), { once: true });
 
-    // --- Name Change Sync ---
     userNameInput.addEventListener('change', () => {
-      updatePresenceDoc();
+      if (isFirebaseActive) {
+        updatePresenceDoc();
+      }
     });
 
     // --- Tool Selection ---
@@ -990,20 +1161,25 @@
 
       sound.playSend();
 
-      if (db && currentUser) {
+      if (isFirebaseActive && db && currentUser) {
         try {
           const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', 'messages');
           await addDoc(messagesRef, msgObj);
         } catch (err) {
-          console.error("Cloud send error, saving locally:", err);
-          msgObj.id = Date.now().toString();
-          roomMessages[currentRoom].push(msgObj);
-          renderChatLog();
+          console.error("Cloud send error, falling back locally:", err);
         }
       } else {
         msgObj.id = Date.now().toString();
+        if (!roomMessages[currentRoom]) roomMessages[currentRoom] = [];
         roomMessages[currentRoom].push(msgObj);
         renderChatLog();
+
+        // Broadcast to P2P network
+        if (isHost) {
+          broadcastToClients({ type: 'NEW_MSG', roomId: currentRoom, message: msgObj });
+        } else if (clientHostConn && clientHostConn.open) {
+          clientHostConn.send({ type: 'NEW_MSG', message: msgObj });
+        }
       }
 
       initCanvas();
@@ -1047,7 +1223,12 @@
     roomSelect.addEventListener('change', (e) => {
       currentRoom = e.target.value;
       renderChatLog();
-      updatePresenceDoc();
+
+      if (isFirebaseActive) {
+        updatePresenceDoc();
+      } else if (window.Peer) {
+        initPeerJSP2P();
+      }
     });
 
     // --- Flipbook & Room Clear Modals ---
@@ -1152,7 +1333,7 @@
       confirmModal.classList.add('hidden');
       sound.playClear();
 
-      if (db && currentUser) {
+      if (isFirebaseActive && db && currentUser) {
         for (const msg of listToDelete) {
           if (msg.id) {
             try {
@@ -1162,6 +1343,12 @@
               console.error("Error clearing msg from database:", e);
             }
           }
+        }
+      } else {
+        if (isHost) {
+          broadcastToClients({ type: 'CLEAR_LOG', roomId: currentRoom });
+        } else if (clientHostConn && clientHostConn.open) {
+          clientHostConn.send({ type: 'CLEAR_LOG', roomId: currentRoom });
         }
       }
     });
